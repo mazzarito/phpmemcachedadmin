@@ -12,8 +12,19 @@ if (defined('ENT_IGNORE') === false) {
 }
 
 # XSS / User input check
-foreach ($_REQUEST as $index => $data) {
-    $_REQUEST[$index] = htmlentities($data);
+if(isset($_REQUEST) && is_array($_REQUEST)) {
+  $filter = function (&$array) use (&$filter) {
+    foreach ($array as &$item) {
+      if (is_array($item)) {
+        $filter($item);
+      }
+      else {
+        $item = htmlentities($item);
+      }
+    }
+  };
+  
+  $filter($_REQUEST);
 }
 
 # Autoloader
