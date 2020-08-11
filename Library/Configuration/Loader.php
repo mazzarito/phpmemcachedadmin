@@ -1,5 +1,4 @@
 <?php
-
 /**
  * Copyright 2010 Cyrille Mahieux
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,171 +15,100 @@
  *
  * ><)))°> ><)))°> ><)))°> ><)))°> ><)))°> ><)))°> ><)))°> ><)))°> ><)))°>
  *
- * Configuration class for editing, saving, ...
+ * Configuration
  *
  * @author elijaa@free.fr
- * @since 19/05/2010
+ * @since 06/04/2010
  */
-class Library_Configuration_Loader
-{
-    # Singleton
-    protected static $_instance = null;
+# Require
+require_once 'Library/Bootstrap.php';
 
-    # Configuration file
-    protected static $_iniPath = './Config/Memcache.php';
+# Initializing requests
+$request = (isset($_REQUEST['request_write'])) ? $_REQUEST['request_write'] : null;
+$write = null;
 
-    # Configuration needed keys and default values
-    protected static $_iniKeys = array('stats_api' => 'Server',
-        'slabs_api' => 'Server',
-        'items_api' => 'Server',
-        'get_api' => 'Server',
-        'set_api' => 'Server',
-        'delete_api' => 'Server',
-        'flush_all_api' => 'Server',
-        'connection_timeout' => 1,
-        'max_item_dump' => 100,
-        'refresh_rate' => 2,
-        'memory_alert' => 80,
-        'hit_rate_alert' => 90,
-        'eviction_alert' => 0,
-        'file_path' => 'Temp/',
-        'servers' => array('Default' => array('127.0.0.1:11211' => array('hostname' => '127.0.0.1', 'port' => 11211))));
+# Display by request type
+switch ($request) {
+    # Unlock configuration file & temp directory
+    case 'unlock' :
+        # chmod 0755
+        chmod(Library_Configuration_Loader::path(), 0755);
+        chmod($_ini->get('file_path'), 0755);
+        break;
 
-    # Storage
-    protected static $_ini = array();
+    # Live stats configuration save
+    case 'live_stats' :
+        # Updating configuration
+        $_ini->set('refresh_rate', round(max(2, $_POST['refresh_rate'])));
+        $_ini->set('memory_alert', $_POST['memory_alert']);
+        $_ini->set('hit_rate_alert', $_POST['hit_rate_alert']);
+        $_ini->set('eviction_alert', $_POST['eviction_alert']);
+        $_ini->set('file_path', $_POST['file_path']);
 
-    /**
-     * Constructor, load configuration file and parse server list
-     *
-     * @return Void
-     */
-    protected function __construct()
-    {
-        # Checking ini File
-        if (file_exists(self::$_iniPath)) {
-            # Opening ini file
-            self::$_ini = require self::$_iniPath;
-        } else {
-            # Fallback
-            self::$_ini = self::$_iniKeys;
-        }
-    }
+        # Writing configuration file
+        $write = Library_Configuration_Loader::singleton()->write();
+        break;
 
-    /**
-     * Get Library_Configuration_Loader singleton
-     *
-     * @return Library_Configuration_Loader
-     */
-    public static function singleton()
-    {
-        if (! isset(self::$_instance)) {
-            self::$_instance = new self();
-        }
-        return self::$_instance;
-    }
+    # Commands configuration save
+    case 'commands' :
+        # Updating configuration
+        $_ini->set('stats_api', $_POST['stats_api']);
+        $_ini->set('slabs_api', $_POST['slabs_api']);
+        $_ini->set('items_api', $_POST['items_api']);
+        $_ini->set('get_api', $_POST['get_api']);
+        $_ini->set('set_api', $_POST['set_api']);
+        $_ini->set('delete_api', $_POST['delete_api']);
+        $_ini->set('flush_all_api', $_POST['flush_all_api']);
 
-    /**
-     * Config key to retrieve
-     * Return the value, or false if does not exists
-     *
-     * @param String $key Key to get
-     *
-     * @return Mixed
-     */
-    public function get($key)
-    {
-        if (isset(self::$_ini[$key])) {
-            return self::$_ini[$key];
-        }
-        return false;
-    }
+        # Writing configuration file
+        $write = Library_Configuration_Loader::singleton()->write();
+        break;
 
-    /**
-     * Servers to retrieve from cluster
-     * Return the value, or false if does not exists
-     *
-     * @param String $cluster Cluster to retreive
-     *
-     * @return Array
-     */
-    public function cluster($cluster)
-    {
-        if (isset(self::$_ini['servers'][$cluster])) {
-            return self::$_ini['servers'][$cluster];
-        }
-        return array();
-    }
-
-    /**
-     * Check and return server data
-     * Return the value, or false if does not exists
-     *
-     * @param String $server Server to retreive
-     *
-     * @return Array
-     */
-    public function server($server)
-    {
-        foreach (self::$_ini['servers'] as $cluster => $servers) {
-            if (isset(self::$_ini['servers'][$cluster][$server])) {
-                return self::$_ini['servers'][$cluster][$server];
+    # Server configuration save
+    case 'servers' :
+        $array = array();
+        foreach ($_POST['server'] as $cluster => $servers) {
+            foreach ($servers as $data) {
+                $array[$_POST['cluster'][$cluster]][$data['name']] = $data;
+                unset($array[$_POST['cluster'][$cluster]][$data['name']]['name']);
             }
         }
-        return array();
-    }
 
-    /**
-     * Config key to set
-     *
-     * @param String $key Key to set
-     * @param Mixed $value Value to set
-     *
-     * @return Boolean
-     */
-    public function set($key, $value)
-    {
-        self::$_ini[$key] = $value;
-    }
-
-    /**
-     * Return actual ini file path
-     *
-     * @return String
-     */
-    public function path()
-    {
-        return self::$_iniPath;
-    }
-
-    /**
-     * Check if every ini keys are set
-     * Return true if ini is correct, false otherwise
-     *
-     * @return Boolean
-     */
-    public function check()
-    {
-        # Checking configuration keys
-        foreach (array_keys(self::$_iniKeys) as $iniKey) {
-            # Ini file key not set
-            if (isset(self::$_ini[$iniKey]) === false) {
-                return false;
-            }
+        # Sorting clusters
+        ksort($array);
+        foreach ($array as $cluster => $servers) {
+            # Sorting servers
+            ksort($servers);
+            $array[$cluster] = $servers;
         }
-        return true;
-    }
 
-    /**
-     * Write ini file
-     * Return true if written, false otherwise
-     *
-     * @return Boolean
-     */
-    public function write()
-    {
-        if ($this->check()) {
-            return is_numeric(file_put_contents(self::$_iniPath, '<?php' . PHP_EOL . 'return ' . var_export(self::$_ini, true) . ';'));
-        }
-        return false;
-    }
+        # Updating configuration
+        $_ini->set('servers', $array);
+
+        # Writing configuration file
+        $write = Library_Configuration_Loader::singleton()->write();
+        break;
+
+    # Miscellaneous configuration save
+    case 'miscellaneous' :
+        # Updating configuration
+        $_ini->set('connection_timeout', $_POST['connection_timeout']);
+        $_ini->set('max_item_dump', $_POST['max_item_dump']);
+
+        # Writing configuration file
+        $write = Library_Configuration_Loader::singleton()->write();
+        break;
+
+    # Default : No command
+    default :
+        break;
 }
+
+# Showing header
+include 'View/Header.phtml';
+
+# Showing formulary
+include 'View/Configure/Configure.phtml';
+
+# Showing footer
+include 'View/Footer.phtml';
